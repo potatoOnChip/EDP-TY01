@@ -1,6 +1,11 @@
 package ckcs.classes;
 
 import ckcs.interfaces.KeyServer;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.util.ArrayList;
 import java.util.UUID;
 import javax.crypto.SecretKey;
@@ -12,11 +17,35 @@ public class GroupController implements KeyServer {
     private LogicalTree tree;
     private ArrayList<UUID> groupMembers;
     
+    public static void main(String[] args) {
+        GroupController f = new GroupController();
+        
+        for(int i = 0; i < 27; i++) {
+            f.acceptJoinRequest();
+        }
+        
+        for (UUID memb : f.groupMembers) {
+            System.out.println("ID: " + memb + " ParentCode: " + f.tree.getParentCode(memb));
+        }
+        
+    }
+    
     public GroupController() {
-        tree = new LogicalTree(2, 3);
+        tree = new LogicalTree(3, 3);
         groupMembers = new ArrayList<>();
     }
 
+    public void startListening(final int portNumber) {
+        while (true) {
+            listenToPort(portNumber);
+        }
+    }
+    
+    //to constantly listen to requests for n active members; multihandle requests
+    private void listenToPort(final int portNumber) {
+        
+    }
+    
     @Override
     public void acceptJoinRequest() {
         GroupMember member = new GroupMember();
@@ -24,6 +53,7 @@ public class GroupController implements KeyServer {
         SecretKey key = Security.generateRandomKey();       //This should involve some ECDH key agreement
         tree.add(member.getId(), key);                  //or DH key agreement so no secret key is transfered over network
         member.setKey(key); 
+        System.out.println("member number: " + member.getId() + " code: " + tree.getParentCode(member.getId()));
     }
 
     @Override

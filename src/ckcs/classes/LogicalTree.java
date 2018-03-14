@@ -76,6 +76,7 @@ public class LogicalTree {
             leafNodes.remove(memberId);
             parent.children.remove(memberId);
             setExposed(pathToRoot(member));
+            resetChildIterator();
         } else {
             int newParentCode = parent.parentCode;
             for (UUID Id : parent.children) {
@@ -116,21 +117,22 @@ public class LogicalTree {
     //a new MIDDLENODE and attach new member to that NEW MIDDLENODE
     //This ensures that ALL MIDDLENODES are full with children before deciding to replace a CHILD with a new MIDDLENODE 
     public void add(UUID memberId, SecretKey key) {
-        resetChildIterator();
         while (iteratorChild.hasNext()) {
             int code = (Integer)iteratorChild.next();
             MiddleNode parent = middleNodes.get(code);
             if (addLeaf(parent, memberId, key)) {
                 middleNodes.put(code, parent);
+                iteratorChild.previous();
                 return;
             }
         }
-        updateMiddleIterator();
+        iteratorChild.previous();
         while(iteratorMiddle.hasNext()) {
             int code = (Integer)iteratorMiddle.next();
             MiddleNode parent = middleNodes.get(code);
             if (addMiddleAndLeaf(parent, memberId, key)) {
                 middleNodes.put(code, parent);
+                updateIterators();
                 return;
             }
         }
@@ -142,7 +144,6 @@ public class LogicalTree {
             parent.children.add(memberId);
             parent.numberOfChildren++;
             leafNodes.put(memberId, child);
-            iteratorChild.previous();
             return true;
         }
         return false;
@@ -216,21 +217,23 @@ public class LogicalTree {
         return code;
     }
     
-    private void resetChildIterator() {
-        ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
-        iteratorChild = keyList.listIterator(0);
-    }
-    
     private void resetMiddleIterator() {
         ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
         iteratorMiddle = keyList.listIterator(0);
     }
     
-    //purpose is to update iterator with new keylist
-    private void updateMiddleIterator() {
-        int position = iteratorMiddle.nextIndex();
+    private void resetChildIterator() {
         ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
-        iteratorMiddle = keyList.listIterator(position);
+        iteratorChild = keyList.listIterator(0);
+    }
+    
+    //purpose is to update iterator with new keylist
+    private void updateIterators() {
+        int positionMiddle = iteratorMiddle.nextIndex();
+        int positionChild = iteratorChild.nextIndex();
+        ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
+        iteratorMiddle = keyList.listIterator(positionMiddle);
+        iteratorChild = keyList.listIterator(positionMiddle);
     }
     
     //to update the nodeCodes and parentNodeCodes of all middleNodes under parameter - node
