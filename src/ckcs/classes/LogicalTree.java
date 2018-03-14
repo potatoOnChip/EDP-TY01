@@ -18,7 +18,8 @@ public class LogicalTree {
     private TreeMap<Integer, MiddleNode> middleNodes; //red-black based; ordered mapping via keys (node codes)
     private TreeMap<Integer, ArrayList<Integer>> codeValuesTaken;
     private HashMap<UUID, LeafNode> leafNodes; //UUID = groupMember ID
-    private MiddleNode rootNode;    //holds group key
+    private MiddleNode rootNode;
+    private SecretKey groupKey;
     private int maxChildren;    // max number of children for each node
     private int numberOfCodeDigits; // for rootNode; e.g. 20143 = 5
     private ListIterator iteratorChild;
@@ -48,7 +49,6 @@ public class LogicalTree {
         if (member == null) 
             throw new NoMemberException("Given memberId does not match a registered member");
         
-        SecretKey groupKey = rootNode.key;
         ArrayList<Integer> path = pathToRoot(member);
         ListIterator it = path.listIterator(path.size());
         while (it.hasPrevious()) {
@@ -88,6 +88,7 @@ public class LogicalTree {
             }
             middleNodes.remove(parent.nodeCode);
             leafNodes.remove(memberId);
+            resetMiddleIterator();
         }
     } 
     
@@ -115,7 +116,7 @@ public class LogicalTree {
     //a new MIDDLENODE and attach new member to that NEW MIDDLENODE
     //This ensures that ALL MIDDLENODES are full with children before deciding to replace a CHILD with a new MIDDLENODE 
     public void add(UUID memberId, SecretKey key) {
-        updateChildIterator();
+        resetChildIterator();
         while (iteratorChild.hasNext()) {
             int code = (Integer)iteratorChild.next();
             MiddleNode parent = middleNodes.get(code);
@@ -124,7 +125,6 @@ public class LogicalTree {
                 return;
             }
         }
-        setChildIterator(0);
         updateMiddleIterator();
         while(iteratorMiddle.hasNext()) {
             int code = (Integer)iteratorMiddle.next();
@@ -201,7 +201,6 @@ public class LogicalTree {
     
     private int addRandomDigit(Integer parentCode) {
         int digitSize = parentCode.toString().length() + 1;
-        int recurse = 0;
         
         if (codeValuesTaken.get(digitSize) == null) {
             ArrayList<Integer> codes = new ArrayList<>();
@@ -210,40 +209,32 @@ public class LogicalTree {
         ArrayList<Integer> codes = codeValuesTaken.get(digitSize);
         Integer code = Integer.parseInt("" + parentCode + "" + (int)(10 * Math.random()));
         while (codes.contains(code)) {
-            recurse++;
             code = Integer.parseInt("" + parentCode + "" + (int)(10 * Math.random()));
-            if (recurse > 9) {
-                TreeMap<Integer, MiddleNode> tempMiddles = new TreeMap<>();
-                tempMiddles.putAll(middleNodes);
-                middleNodes.clear();
-                codeValuesTaken.clear();
-                updateNodeCodes(rootNode, setRootCode(numberOfCodeDigits++), tempMiddles.values());
-            }
         }
         codes.add(code);
         codeValuesTaken.put(digitSize, codes);
         return code;
     }
     
-    private void setChildIterator(int position) {
+    private void resetChildIterator() {
         ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
-        iteratorChild = keyList.listIterator(position);
+        iteratorChild = keyList.listIterator(0);
     }
     
-    //purpose is to update iterator with new list of keys
-    private void updateChildIterator() {
-        int position = iteratorChild.nextIndex();
-        setChildIterator(position);
+    private void resetMiddleIterator() {
+        ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
+        iteratorMiddle = keyList.listIterator(0);
     }
     
-    //purpose is to reset iterator to beginning of new list
+    //purpose is to update iterator with new keylist
     private void updateMiddleIterator() {
         int position = iteratorMiddle.nextIndex();
         ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
         iteratorMiddle = keyList.listIterator(position);
     }
     
-    //
+    //to update the nodeCodes and parentNodeCodes of all middleNodes under parameter - node
+    //NEEDS TO BE TESTEDDDDDDDDDDDDDDD
     private void updateNodeCodes(MiddleNode node, int newParentCode, Collection<MiddleNode> middles) {
         int parentCode = node.nodeCode;
         node.parentCode = newParentCode;
@@ -260,13 +251,13 @@ public class LogicalTree {
     //for simultaneous join, root nodes become children for the new root node
     //NEEDS TO BE TESTEDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD
     public void combineTrees(LogicalTree tree) {
-        MiddleNode tempNode = new MiddleNode();
+        MiddleNode newRootNode = new MiddleNode();
         if (rootNode.nodeCode > 10) {
-            tempNode.nodeCode = removeDigit(rootNode.nodeCode);
-            rootNode.parentCode = tempNode.nodeCode;  
+            newRootNode.nodeCode = removeDigit(rootNode.nodeCode);
+            rootNode.parentCode = newRootNode.nodeCode;  
             middleNodes.put(rootNode.nodeCode, rootNode);
-            middleNodes.put(tempNode.nodeCode, tempNode);
-            rootNode = tempNode;
+            middleNodes.put(newRootNode.nodeCode, newRootNode);
+            rootNode = newRootNode;
             
             Collection<MiddleNode> middles = tree.middleNodes.values();
             updateNodeCodes(tree.rootNode, rootNode.nodeCode, middles);
@@ -275,17 +266,17 @@ public class LogicalTree {
             TreeMap<Integer, MiddleNode> tempMiddles = new TreeMap<>();
             tempMiddles.putAll(middleNodes);
             middleNodes.clear();
-            updateNodeCodes(rootNode, setRootCode(numberOfCodeDigits++), tempMiddles.values());
+            updateNodeCodes(rootNode, setRootCode(++numberOfCodeDigits), tempMiddles.values());
             combineTrees(tree);
         }
     }
     
-    public SecretKey getRootKey() {
-        return rootNode.key;
+    public SecretKey getGroupKey() {
+        return this.groupKey;
     }
     
-    public void setRootKey(SecretKey key) {
-        rootNode.key = key;
+    public void setGroupKey(SecretKey key) {
+        this.groupKey = key;
     }
     
     public int setRootCode(int DigitLength) {
@@ -298,7 +289,6 @@ public class LogicalTree {
     
     //middlenode, just need to hold key and nodeCode, maybe an identifier?
     private class MiddleNode implements Node {
-        private SecretKey key;
         private int parentCode;
         private int nodeCode;
         private int numberOfChildren;
@@ -314,7 +304,7 @@ public class LogicalTree {
             this.nodeCode = addRandomDigit(parentCode);
         }
         
-        //only for rootNode
+        //ONLY for rootNode
         private MiddleNode() {
             this.parentCode = 0;
             this.numberOfChildren = 0;
