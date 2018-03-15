@@ -5,6 +5,7 @@ import ckcs.interfaces.Node;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.ListIterator;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -36,7 +37,7 @@ public class LogicalTree {
         this.rootNode = new MiddleNode();
         
         middleNodes.put(rootNode.nodeCode, rootNode);
-        ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
+        List<Integer> keyList = new ArrayList<>(middleNodes.keySet());
         iteratorChild = keyList.listIterator();
         iteratorMiddle = keyList.listIterator();
     }
@@ -164,6 +165,7 @@ public class LogicalTree {
             middleChild.children.add(memberId);
             middleChild.numberOfChildren += 2;
             childOne.parentCode = middleChild.nodeCode;
+            childOne.isParentUpdated = true;
             middleNodes.put(middleChild.nodeCode, middleChild);
             leafNodes.put(childOneId, childOne);
             leafNodes.put(memberId, child);
@@ -218,20 +220,19 @@ public class LogicalTree {
     }
     
     private void resetMiddleIterator() {
-        ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
+        List<Integer> keyList = new ArrayList<>(middleNodes.keySet());
         iteratorMiddle = keyList.listIterator(0);
     }
     
     private void resetChildIterator() {
-        ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
+        List<Integer> keyList = new ArrayList<>(middleNodes.keySet());
         iteratorChild = keyList.listIterator(0);
     }
     
     //purpose is to update iterator with new keylist
     private void updateIterators() {
         int positionMiddle = iteratorMiddle.nextIndex();
-        int positionChild = iteratorChild.nextIndex();
-        ArrayList<Integer> keyList = new ArrayList<>(middleNodes.keySet());
+        List<Integer> keyList = new ArrayList<>(middleNodes.keySet());
         iteratorMiddle = keyList.listIterator(positionMiddle);
         iteratorChild = keyList.listIterator(positionMiddle);
     }
@@ -290,6 +291,19 @@ public class LogicalTree {
         return code;
     }
     
+    //every new middle node add causes a groupmember to loose sync with their parentCode
+    //this only needs to be called once every member LEAVE -- cause only then will the
+    //members need the appropriate codes -- on JOIN they only update using hash ---
+    public List<UUID> codesToUpdate() {
+        List<UUID> nodes = new ArrayList<>();
+        for (UUID memID : leafNodes.keySet()) {
+            LeafNode node = leafNodes.get(memID);
+            if (node.isParentUpdated)
+                nodes.add(memID);
+        }
+        return nodes;
+    }
+    
     //middlenode, just need to hold key and nodeCode, maybe an identifier?
     private class MiddleNode implements Node {
         private int parentCode;
@@ -322,6 +336,7 @@ public class LogicalTree {
     private class LeafNode implements Node {
         private final SecretKey key;
         private int parentCode;
+        private boolean isParentUpdated;
         
         public LeafNode(int position, SecretKey key) {
             this.parentCode = position; 
