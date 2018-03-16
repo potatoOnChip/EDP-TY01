@@ -304,6 +304,11 @@ public class LogicalTree {
         return nodes;
     }
     
+    @Override
+    public String toString() {
+        return "members: " + leafNodes.values().size();
+    }
+    
     //middlenode, just need to hold key and nodeCode, maybe an identifier?
     private class MiddleNode implements Node {
         private int parentCode;

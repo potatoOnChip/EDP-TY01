@@ -108,6 +108,7 @@ public class Security {
         return null;
     }   
     
+    //update key for JOINS
     public static SecretKey updateKey(final SecretKey key) {
         //returns new 256-bit key value using hash of inputted key
         byte[] keyHash = hashFunction(key.getEncoded());

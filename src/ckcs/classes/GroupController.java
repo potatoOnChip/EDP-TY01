@@ -18,6 +18,7 @@ import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.crypto.SecretKey;
+import javax.xml.bind.DatatypeConverter;
 
 //should manage a multicast group, tell every member who join the 'ip-address of multicast'
 public class GroupController {
@@ -28,23 +29,23 @@ public class GroupController {
     private final ArrayList<UUID> groupMembers;
     private final UUID serverID;
     private final InetAddress address;
-    private final int port;
+    private int port;
     
-    public GroupController(InetAddress groupAddress, int portNumber) {
-        tree = new LogicalTree(2, 3);
-        groupMembers = new ArrayList<>();
-        serverID = UUID.randomUUID();
+    public GroupController(InetAddress groupAddress) {
+        this.tree = new LogicalTree(2, 3);
+        tree.setGroupKey(Security.generateRandomKey());
+        this.groupMembers = new ArrayList<>();
+        this.serverID = UUID.randomUUID();
         this.address = groupAddress; //multicast group address
-        this.port = portNumber; //global port that all should listen to, changing port selects listening traffic
     }
     
     //start a serverSocket listening for connections -- this is BLOCKING, 
     //every accepted connection spawns a new thread to handle the accepted 
     //connections --- either JOIN/LEAVE/MESSAGE request
-    public void startListening(final int portNumber) {
+    public void startListening(final int port) {
         try {        
             ServerSocket server = new ServerSocket();
-            server.bind(new InetSocketAddress(portNumber));
+            server.bind(new InetSocketAddress(port));
             while (true) {
                 Socket socket = server.accept();
                 new RequestHandler(socket).start();
@@ -55,30 +56,34 @@ public class GroupController {
     }
     
     //multicast to group members that key must be updated via hash for JOIN
-    public void addMember(UUID memberID, SecretKey key) {
+    private void addMember(UUID memberID, SecretKey key) {
         tree.add(memberID, key);
         groupMembers.add(memberID);
         updateKeyOnJoin();
-        multicastKeyJoinUpdate();
+        multicastJoinUpdate();
     }
     
-    private void multicastKeyJoinUpdate() {
-        try {
-            try (DatagramSocket socket = new DatagramSocket()) {
-                BigInteger big = BigInteger.valueOf(RequestCodes.KEY_UPDATE_JOIN);
-                byte[] buffer = big.toByteArray();
-                DatagramPacket packet = new DatagramPacket(buffer, buffer.length, address, port);
-                socket.send(packet);
-            }
+    //send multicast datagram that tells all group members to update Key for member JOIN
+    private void multicastJoinUpdate() {
+        try (DatagramSocket socket = new DatagramSocket()) {
+            byte[] buffer = new byte[RequestCodes.BUFFER_SIZE];
+            buffer[0] = RequestCodes.KEY_UPDATE_JOIN;
+            System.out.println(buffer[0]);
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length, address, port);
+            socket.send(packet);
         } catch (SocketException ex) {
             Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
         } catch (IOException ex) {
             Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
+    
+    public void setMulticastPort(final int port) {
+        this.port = port;
+    }
 
     //need to handle redistribution of keys------------
-    public void removeMember(UUID memberId) {
+    private void removeMember(UUID memberId) {
         try {
             tree.remove(memberId);
             groupMembers.remove(memberId);
@@ -134,9 +139,8 @@ public class GroupController {
             length = in.readInt();
             byte[] received = new byte[length];
             in.readFully(received);
-            message = new String(Security.AESDecrypt(sharedKey, received), StandardCharsets.UTF_8);
-            int receivedCode = Integer.parseInt(message);
-            if (parentCode != receivedCode) {
+            BigInteger big = new BigInteger(Security.AESDecrypt(sharedKey, received));
+            if (parentCode != big.intValueExact()) {
                 System.out.println("Connection Failed -- Back Out");
                 return;
             }
@@ -145,7 +149,7 @@ public class GroupController {
             length = encryptedMessage.length;
             out.writeInt(length);
             out.write(encryptedMessage);
-            System.out.println("Connection Succesfull! Member added");
+            System.out.println("Connection Successful! Member added");
         } catch (IOException ex) {
             Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
         }
@@ -182,9 +186,8 @@ public class GroupController {
         
         @Override
         public void run() {
-            try {
-                DataInputStream in = new DataInputStream(socket.getInputStream());
-                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+            try (DataInputStream in = new DataInputStream(socket.getInputStream());
+                    DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
                 int request = in.readInt();
                 if (request == RequestCodes.REQUEST_JOIN) {
                     handleJoin(in, out);
@@ -192,12 +195,21 @@ public class GroupController {
                 else if (request == RequestCodes.REQUEST_LEAVE) {
                     handleLeave(in, out);
                 }
-                in.close();
-                out.close();
-                socket.close();
             } catch (IOException ex) {
                 Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
+            } finally {
+                try {
+                    socket.close();
+                } catch (IOException ex) {
+                    Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
+                }
             }
         }
+    }
+    
+    @Override
+    public String toString() {
+        return "GK - " + DatatypeConverter.printHexBinary(tree.getGroupKey().getEncoded()) + 
+                "\nRootCode: " + tree.getRootCode() + "  " + tree.toString();
     }
 }

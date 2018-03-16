@@ -32,8 +32,15 @@ public interface RequestCodes {
     //hash update their group keys
     
     final static int KEY_UPDATE_LEAVE = 8;
+    //to multicast to all members to prepare for key update on leave,
+    //have them stop listening to multicast group/port and temporarily leave the group?
+    //server can then individually send each member which port to listen too so to receive
+    //new encrypted group key via multicast
+    
+    
     final static int SEND_MESSAGE = 16;
+    final static int RECEIVE_MESSAGE = 32;
     final static int ERROR = 128;
     
-    final static int BUFFER_SIZE = 2048;
+    final static int BUFFER_SIZE = 512;
 }
