@@ -59,10 +59,10 @@ public class GroupController {
     //multicast to group members that key must be updated via hash for JOIN
     private void addMember(UUID memberID, int port, InetAddress address, SecretKey key) {
         tree.add(memberID, key);
+        uniMultiCast(groupMembers, RequestCodes.KEY_UPDATE_JOIN);
         groupMembers.add(new Member(memberID, port, address));
         updateKeyOnJoin();
         //multicastJoinUpdate();
-        uniMultiCast(groupMembers, RequestCodes.KEY_UPDATE_JOIN);
     }
     
     //send multicast datagram that tells all group members to update Key for member JOIN
@@ -89,6 +89,7 @@ public class GroupController {
                     try (Socket socket = new Socket(mem.address, mem.port)) {
                         DataOutputStream out = new DataOutputStream(socket.getOutputStream());
                         out.writeInt(code);
+                        System.out.println("SEEE");
                     } catch (IOException ex) {
                         Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
                     }                                                                              
