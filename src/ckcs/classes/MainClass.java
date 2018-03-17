@@ -2,8 +2,6 @@ package ckcs.classes;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  *
@@ -23,15 +21,22 @@ public class MainClass {
         th.start();
         
         System.out.println(keyServer.toString());
-        GroupMember member1 = new GroupMember();
+        GroupMember member1 = new GroupMember(10000);
         member1.requestJoin(InetAddress.getLocalHost(), 15000);
         System.out.println(member1.toString());
         System.out.println(keyServer.toString());
         
-        GroupMember member2 = new GroupMember();
+        GroupMember member2 = new GroupMember(10001);
         member2.requestJoin(InetAddress.getLocalHost(), 15000);
         System.out.println(member1.toString());
         System.out.println(member2.toString());
+        System.out.println(keyServer.toString());
+        
+        GroupMember member3 = new GroupMember(10002);
+        member3.requestJoin(InetAddress.getLocalHost(), 15000);
+        System.out.println(member1.toString());
+        System.out.println(member2.toString());
+        System.out.println(member3.toString());
         System.out.println(keyServer.toString());
         
         

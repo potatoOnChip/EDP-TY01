@@ -14,6 +14,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -26,17 +27,17 @@ public class GroupController {
     //GK is stored as root of tree, gets GK by calling tree.getRootKey();
     //updates GK by calling tree.setRootKey(SecretKey key);
     private final LogicalTree tree;
-    private final ArrayList<UUID> groupMembers;
+    private final List<Member> groupMembers;
     private final UUID serverID;
     private final InetAddress address;
-    private int port;
+    private int multcastPort;
     
     public GroupController(InetAddress groupAddress) {
         this.tree = new LogicalTree(2, 3);
-        tree.setGroupKey(Security.generateRandomKey());
         this.groupMembers = new ArrayList<>();
         this.serverID = UUID.randomUUID();
         this.address = groupAddress; //multicast group address
+        tree.setGroupKey(Security.generateRandomKey());
     }
     
     //start a serverSocket listening for connections -- this is BLOCKING, 
@@ -56,11 +57,12 @@ public class GroupController {
     }
     
     //multicast to group members that key must be updated via hash for JOIN
-    private void addMember(UUID memberID, SecretKey key) {
+    private void addMember(UUID memberID, int port, InetAddress address, SecretKey key) {
         tree.add(memberID, key);
-        groupMembers.add(memberID);
+        groupMembers.add(new Member(memberID, port, address));
         updateKeyOnJoin();
-        multicastJoinUpdate();
+        //multicastJoinUpdate();
+        uniMultiCast(groupMembers, RequestCodes.KEY_UPDATE_JOIN);
     }
     
     //send multicast datagram that tells all group members to update Key for member JOIN
@@ -69,7 +71,7 @@ public class GroupController {
             byte[] buffer = new byte[RequestCodes.BUFFER_SIZE];
             buffer[0] = RequestCodes.KEY_UPDATE_JOIN;
             System.out.println(buffer[0]);
-            DatagramPacket packet = new DatagramPacket(buffer, buffer.length, address, port);
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length, address, multcastPort);
             socket.send(packet);
         } catch (SocketException ex) {
             Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
@@ -78,15 +80,32 @@ public class GroupController {
         }
     }
     
+    //a bunch of unicasts to simulate multicast
+    private void uniMultiCast(final List<Member> members, final int code) {      
+        for (final Member mem : members) {
+            Thread caster = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try (Socket socket = new Socket(mem.address, mem.port)) {
+                        DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                        out.writeInt(code);
+                    } catch (IOException ex) {
+                        Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
+                    }                                                                              
+                }
+            });
+            caster.start();
+        }
+    }
+    
     public void setMulticastPort(final int port) {
-        this.port = port;
+        this.multcastPort = port;
     }
 
     //need to handle redistribution of keys------------
     private void removeMember(UUID memberId) {
         try {
             tree.remove(memberId);
-            groupMembers.remove(memberId);
             updateKeyOnLeave();
         } catch (Exceptions.NoMemberException e) {
             System.out.println(e.getMessage());
@@ -120,17 +139,19 @@ public class GroupController {
             }
             UUID memID = UUID.fromString(parts[1]);
             int N2Received = Integer.parseInt(parts[2]);
+            int memberPort = Integer.parseInt(parts[3]);
+            InetAddress memberAddress = InetAddress.getByName(parts[4]);
             SecretKey sharedKey = Security.ECDHKeyAgreement(in, out);
             
-            message = "" + N2Received + "::" + memID.toString();
+            message = "" + memberPort + "::" + N2Received + "::" + memID.toString();
             byte[] encryptedMessage = Security.AESEncrypt(sharedKey, message.getBytes(StandardCharsets.UTF_8));
             int length = encryptedMessage.length;
             out.writeInt(length);
             out.write(encryptedMessage);
             
-            addMember(memID, sharedKey);
+            addMember(memID, memberPort, memberAddress, sharedKey);
             int parentCode = tree.getParentCode(memID);
-            message = "" + parentCode + "::" + address.getHostAddress() + "::" + port;
+            message = "" + parentCode + "::" + address.getHostAddress() + "::" + multcastPort;
             encryptedMessage = Security.AESEncrypt(sharedKey, message.getBytes(StandardCharsets.UTF_8));
             length = encryptedMessage.length;
             out.writeInt(length);
@@ -204,6 +225,18 @@ public class GroupController {
                     Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
                 }
             }
+        }
+    }
+    
+    private class Member {
+        private final InetAddress address;
+        private final int port;
+        private final UUID id;
+        
+        public Member(UUID id, int port, InetAddress address) {
+            this.id = id;
+            this.port = port;
+            this.address = address;
         }
     }
     
