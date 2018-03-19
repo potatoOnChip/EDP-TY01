@@ -3,14 +3,22 @@ package ckcs.classes;
 import static java.lang.Thread.sleep;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import javax.crypto.SecretKey;
+import javax.xml.bind.DatatypeConverter;
 
 /**
  *
  * @author abika
  */
 public class MainClass {
+    static ArrayList<GroupMember> members = new ArrayList<>();
+    static InetAddress address;
+    static GroupController keyServer;
+    
     public static void main(String[] args) throws UnknownHostException, InterruptedException {
-        final GroupController keyServer = new GroupController(InetAddress.getByName("239.255.255.250"));
+        keyServer = new GroupController(InetAddress.getByName("239.255.255.250"));
+        address = InetAddress.getLocalHost();
         
         Thread th = new Thread(new Runnable() {
             @Override
@@ -20,34 +28,36 @@ public class MainClass {
             }
         });
         th.start();
-        
-        System.out.println(keyServer.toString());
-        GroupMember member1 = new GroupMember(10000);
-        member1.requestJoin(InetAddress.getLocalHost(), 15000);
-        System.out.println(member1.toString());
         System.out.println(keyServer.toString());
         
-        GroupMember member2 = new GroupMember(10001);
-        member2.requestJoin(InetAddress.getLocalHost(), 15000);
-        System.out.println(member1.toString());
-        System.out.println(member2.toString());
-        System.out.println(keyServer.toString());
+        for (int i = 0; i < 8; i++) {
+            addMember(10000 + i);
+        }
         
-        GroupMember member3 = new GroupMember(10002);
-        member3.requestJoin(InetAddress.getLocalHost(), 15000);
+        for (int i = 0; i < 4; i++) {
+            removeMember(i);
+        }
+    }
+    
+    private static void printMembers() throws InterruptedException {
         sleep(100);
-        System.out.println(member1.toString());
-        System.out.println(member2.toString());
-        System.out.println(member3.toString());
+        for (GroupMember mem : members) 
+            System.out.println(mem.toString());
+    }
+    
+    private static void addMember(int port) throws InterruptedException {
+        GroupMember member = new GroupMember(port);
+        member.requestJoin(address, 15000);
+        members.add(member);
+        printMembers();
         System.out.println(keyServer.toString());
-        
-        GroupMember member4 = new GroupMember(10003);
-        member4.requestJoin(InetAddress.getLocalHost(), 15000);
-        sleep(100);
-        System.out.println(member1.toString());
-        System.out.println(member2.toString());
-        System.out.println(member3.toString());
-        System.out.println(member4.toString());
+    }
+    
+    private static void removeMember(int index) throws InterruptedException {
+        GroupMember member = members.get(index);
+        member.requestLeave(address, 15000);
+        members.remove(index);
+        printMembers();
         System.out.println(keyServer.toString());
     }
 }

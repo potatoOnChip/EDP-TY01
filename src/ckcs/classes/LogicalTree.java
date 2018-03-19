@@ -3,6 +3,7 @@ package ckcs.classes;
 import ckcs.classes.Exceptions.NoMemberException;
 import ckcs.interfaces.Node;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -10,6 +11,7 @@ import java.util.ListIterator;
 import java.util.TreeMap;
 import java.util.UUID;
 import javax.crypto.SecretKey;
+import javax.xml.bind.DatatypeConverter;
 
 //tree constructed as a binary tree, strictly to hold data for KeyServer
 //and some minimum data manipulation 
@@ -20,7 +22,6 @@ public class LogicalTree {
     private TreeMap<Integer, ArrayList<Integer>> codeValuesTaken;
     private HashMap<UUID, LeafNode> leafNodes; //UUID = groupMember ID
     private MiddleNode rootNode;
-    private SecretKey groupKey;
     private int maxChildren;    // max number of children for each node
     private int numberOfCodeDigits; // for rootNode; e.g. 20143 = 5
     private ListIterator iteratorChild;
@@ -52,15 +53,30 @@ public class LogicalTree {
         
         ArrayList<Integer> path = pathToRoot(member);
         ListIterator it = path.listIterator(path.size());
+        int level = 0;
         while (it.hasPrevious()) {
             Integer nodeCode = (Integer)it.previous();
             MiddleNode middle = middleNodes.get(nodeCode);
+            level++;
             if (!middle.exposed) {
-                SecretKey middleKey = Security.middleKeyCalculation(groupKey, middle.nodeCode);
-                return Security.AESEncrypt(middleKey, groupKey.getEncoded());
+                byte[] temp = Security.AESEncrypt(middle.key, rootNode.key.getEncoded());
+                byte[] encryptedGK = Arrays.copyOf(temp, temp.length + 1);
+                encryptedGK[temp.length] = (byte)level;
+                return encryptedGK;
             }
         }
-        return Security.AESEncrypt(member.key, groupKey.getEncoded());
+        level++;
+        byte[] temp = Security.AESEncrypt(member.key, rootNode.key.getEncoded());
+        byte[] encryptedGK = Arrays.copyOf(temp, temp.length + 1);
+        encryptedGK[temp.length] = (byte)level;
+        return encryptedGK;
+    }
+    
+    private void updateMiddleKeys() {
+        for (MiddleNode middle : middleNodes.values()) {
+            if (middle.nodeCode != rootNode.nodeCode)
+                middle.key = Security.middleKeyCalculation(rootNode.key, middle.nodeCode);
+        }
     }
     
     //remove a node from the tree
@@ -73,25 +89,46 @@ public class LogicalTree {
             throw new Exceptions.NoMemberException("Given member does not exist in tree.");
         }
         MiddleNode parent = middleNodes.get(member.parentCode);
+        parent.children.remove(memberId);
         if (parent.children.size() > 2) {
             leafNodes.remove(memberId);
-            parent.children.remove(memberId);
             setExposed(pathToRoot(member));
             resetChildIterator();
         } else {
-            int newParentCode = parent.parentCode;
-            for (UUID Id : parent.children) {
-                if (!Id.equals(memberId)) {
-                    LeafNode sibling = leafNodes.get(Id);
-                    sibling.parentCode = newParentCode;
-                    setExposed(pathToRoot(sibling));
-                    leafNodes.put(Id, sibling);      
+            if (parent.children.isEmpty()) {
+                setExposed(pathToRoot(member));
+                int digitSize = Integer.toString(parent.nodeCode).length() + 1;
+                MiddleNode middle = null;
+                for (Integer nodeCode : codeValuesTaken.get(digitSize)) {
+                    if (middleNodes.get(nodeCode).parentCode == parent.nodeCode) {
+                        middle = middleNodes.get(nodeCode);
+                    }
                 }
+                if (middle != null) {
+                    for (UUID Id : middle.children) {
+                        LeafNode child = leafNodes.get(Id);
+                        child.parentCode = parent.nodeCode;
+                        child.isParentUpdated = true;
+                        leafNodes.put(Id, child);
+                    }                    
+                }
+                middleNodes.put(parent.nodeCode, middle);
+            } else {
+                int newParentCode = parent.parentCode;
+                if (newParentCode != 0) {
+                    UUID siblingId = parent.children.get(0);
+                    LeafNode sibling = leafNodes.get(siblingId);
+                    sibling.parentCode = newParentCode;
+                    sibling.isParentUpdated = true;
+                    setExposed(pathToRoot(sibling));
+                    leafNodes.put(siblingId, sibling);
+                }
+                middleNodes.remove(parent.nodeCode);
             }
-            middleNodes.remove(parent.nodeCode);
             leafNodes.remove(memberId);
             resetMiddleIterator();
         }
+        updateMiddleKeys();
     } 
     
     private void setExposed(ArrayList<Integer> exposedPath) {
@@ -173,17 +210,6 @@ public class LogicalTree {
             return true;
         }
         return false;
-    }
-    
-    public ArrayList<Integer> pathToRoot(UUID id) {
-        ArrayList<Integer> path = new ArrayList<>();
-        LeafNode leaf = leafNodes.get(id);
-        int parentCode = leaf.parentCode;
-        while (parentCode != rootNode.nodeCode) {
-            path.add(parentCode);
-            parentCode = removeDigit(parentCode);
-        }
-        return path;
     }
     
     private ArrayList<Integer> pathToRoot(LeafNode leaf) {
@@ -276,11 +302,11 @@ public class LogicalTree {
     }
     
     public SecretKey getGroupKey() {
-        return this.groupKey;
+        return this.rootNode.key;
     }
     
     public void setGroupKey(SecretKey key) {
-        this.groupKey = key;
+        this.rootNode.key = key;
     }
     
     public int setRootCode(int DigitLength) {
@@ -315,6 +341,7 @@ public class LogicalTree {
         private int nodeCode;
         private int numberOfChildren;
         private ArrayList<UUID> children;
+        private SecretKey key;
         private boolean exposed;
               
         public MiddleNode(int parentCode) {

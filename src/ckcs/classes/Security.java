@@ -68,7 +68,7 @@ public class Security {
             md.update(pubKeyBytes.get(1));
             byte[] secretKeyBytes = md.digest();
             
-            return (SecretKey) new SecretKeySpec(secretKeyBytes, "AES");
+            return new SecretKeySpec(secretKeyBytes, "AES");
         } catch (NoSuchAlgorithmException | IOException | InvalidKeySpecException | InvalidKeyException ex) {
             Logger.getLogger(Security.class.getName()).log(Level.SEVERE, null, ex);
         }
@@ -112,7 +112,7 @@ public class Security {
     public static SecretKey updateKey(final SecretKey key) {
         //returns new 256-bit key value using hash of inputted key
         byte[] keyHash = hashFunction(key.getEncoded());
-        return (SecretKey) new SecretKeySpec(keyHash, "AES");
+        return new SecretKeySpec(keyHash, "AES");
     }
     
     public static void deleteKey() {
@@ -124,6 +124,6 @@ public class Security {
         for(int i = 0; i < keyBytes.length; i++) {
             keyBytes[i] = (byte)(keyBytes[i] ^ (byte)nodeNumber);
         }
-        return (SecretKey) new SecretKeySpec(keyBytes, "AES");
+        return new SecretKeySpec(keyBytes, "AES");
     }
 }

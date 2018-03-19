@@ -11,6 +11,9 @@ import java.net.MulticastSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -25,10 +28,10 @@ public class GroupMember {
     private SecretKey key; //Group Controller key exchange 
     private SecretKey groupKey;
     private int parentCode; //Should be obtained from GroupController via LogicalTree
+    private int rootCode; //rootCode of logical tree
     private int globalPort; //the port multicast group globally sends too
     private InetAddress multicastAddress;
     private int port; //member's unqiue port to communicate with server
-    private InetAddress address;
     private boolean isConnected; 
     
     
@@ -55,7 +58,7 @@ public class GroupMember {
                 
                 int N2 = (int)(1000 * Math.random() * Math.random());
                 message = "" + N1Received + "::" + memberID.toString() + "::" + N2 + "::" + 
-                        port + "::" + address.getHostAddress();
+                        port + "::" + InetAddress.getLocalHost().getHostAddress();
                 out.writeUTF(message);
                 this.key = Security.ECDHKeyAgreement(in, out);
                 
@@ -66,6 +69,7 @@ public class GroupMember {
                 parts = message.split("::");
                 int N2Received = Integer.parseInt(parts[1]);
                 UUID memID = UUID.fromString(parts[2]);
+                this.rootCode = Integer.parseInt(parts[3]);
                 if (N2Received != N2 || !memID.equals(memberID)) {
                     System.out.println("Connection Failed -- Back Out");
                     return;
@@ -150,7 +154,15 @@ public class GroupMember {
                               handleJoinUpdate();
                               break;
                           case RequestCodes.KEY_UPDATE_LEAVE:
-                              handleLeaveUpdate();
+                              int level = in.readInt();
+                              int length = in.readInt();
+                              byte[] encryptedGK = new byte[length];
+                              in.readFully(encryptedGK);
+                              handleLeaveUpdate(encryptedGK, level);
+                              break;
+                          case RequestCodes.UPDATE_PARENT:
+                              int newParent = in.readInt();
+                              updateParent(newParent);
                               break;
                           case RequestCodes.RECEIVE_MESSAGE:
                               break;
@@ -187,7 +199,6 @@ public class GroupMember {
                                 handleJoinUpdate();
                                 return;
                             case RequestCodes.KEY_UPDATE_LEAVE:
-                                handleLeaveUpdate();
                                 return;
                         }
                     }                    
@@ -199,12 +210,42 @@ public class GroupMember {
         groupListener.start();
     }
     
+    private void updateParent(int newParent) {
+        this.parentCode = newParent;
+    }
+    
     private void handleJoinUpdate() {
         groupKey = Security.updateKey(groupKey);
     }
+   
+    //receive a byte[] containing the new encrypted GK
+    //levels -- how many times it has been encrypted (encryption levels)
+    private void handleLeaveUpdate(byte[] encrypted, int level) {
+        List<Integer> path = pathToRoot(parentCode);
+        if (level > path.size() || path.isEmpty()) {
+            encrypted = Security.AESDecrypt(key, encrypted);
+        } else {
+            Iterator it = path.listIterator(path.size() - level);
+            int nodeCode = (Integer)it.next();
+            SecretKey middleKey = Security.middleKeyCalculation(groupKey, nodeCode);
+            encrypted = Security.AESDecrypt(middleKey, encrypted);    
+        }
+        groupKey = new SecretKeySpec(encrypted, "AES");
+    }
     
-    private void handleLeaveUpdate() {
-        
+    private int removeDigit(int parentCode) {
+        String code = Integer.toString(parentCode);
+        String nodeCode = code.substring(0, code.length() - 1);
+        return Integer.parseInt(nodeCode);
+    }
+    
+    private List<Integer> pathToRoot(int parentCode) {
+        List<Integer> path = new ArrayList<>();
+        while (parentCode != this.rootCode) {
+            path.add(parentCode);
+            parentCode = removeDigit(parentCode);
+        }
+        return path;
     }
     
     private void readMessage(byte[] buffer) {
@@ -213,6 +254,10 @@ public class GroupMember {
     
     public void setParentCode(int parentCode) {
         this.parentCode = parentCode;
+    }
+    
+    public void setRootCode(int rootCode) {
+        this.rootCode = rootCode;
     }
     
     public void setKey(SecretKey key) {

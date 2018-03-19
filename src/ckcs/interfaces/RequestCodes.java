@@ -11,9 +11,9 @@ public interface RequestCodes {
     //---------- REQUEST PROTOCOL ---------
     //member sends REQUEST_JOIN 
     //keyServer sends serverID + Nonce N1 
-    //member sends Nonce N1 + memID + Nonce N2
+    //member sends Nonce N1 + memID + Nonce N2 + port + address
     //keyServer and member start ECDH Key Agreement
-    //keyServer encrypts sends Nonce N2 + memID
+    //keyServer encrypts sends port + Nonce N2 + memID + rootCode
     //keyServer addsMember
     //keyServer encrypts sends parentCode + multiCast group address + port
     //member encrypts sends parentCode
@@ -41,7 +41,8 @@ public interface RequestCodes {
     final static int SEND_MESSAGE = 16;
     final static int RECEIVE_MESSAGE = 32;
     final static int LISTEN_PORT = 64;
-    final static int ERROR = 128;
+    final static int UPDATE_PARENT = 128;
+    final static int ERROR = 256;
     
     final static int BUFFER_SIZE = 512;
 }

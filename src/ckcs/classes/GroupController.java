@@ -13,8 +13,10 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -27,14 +29,14 @@ public class GroupController {
     //GK is stored as root of tree, gets GK by calling tree.getRootKey();
     //updates GK by calling tree.setRootKey(SecretKey key);
     private final LogicalTree tree;
-    private final List<Member> groupMembers;
+    private final Map<UUID, Member> groupMembers;
     private final UUID serverID;
     private final InetAddress address;
     private int multcastPort;
     
     public GroupController(InetAddress groupAddress) {
         this.tree = new LogicalTree(2, 3);
-        this.groupMembers = new ArrayList<>();
+        this.groupMembers = new HashMap<>();
         this.serverID = UUID.randomUUID();
         this.address = groupAddress; //multicast group address
         tree.setGroupKey(Security.generateRandomKey());
@@ -60,8 +62,9 @@ public class GroupController {
     private void addMember(UUID memberID, int port, InetAddress address, SecretKey key) {
         tree.add(memberID, key);
         uniMultiCast(groupMembers, RequestCodes.KEY_UPDATE_JOIN);
-        groupMembers.add(new Member(memberID, port, address));
+        groupMembers.put(memberID, new Member(port, address));
         updateKeyOnJoin();
+        updateParents();
         //multicastJoinUpdate();
     }
     
@@ -81,22 +84,50 @@ public class GroupController {
     }
     
     //a bunch of unicasts to simulate multicast
-    private void uniMultiCast(final List<Member> members, final int code) {      
-        for (final Member mem : members) {
+    private void uniMultiCast(final Map<UUID, Member> members, final int code) {  
+        for (final UUID memId : members.keySet()) {
+            final Member member = members.get(memId);
             Thread caster = new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    try (Socket socket = new Socket(mem.address, mem.port)) {
-                        DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                    try (Socket socket = new Socket(member.address, member.port)) {
+                        DataOutputStream out = new DataOutputStream(socket.getOutputStream());      
                         out.writeInt(code);
-                        System.out.println("SEEE");
-                    } catch (IOException ex) {
+                        switch (code) {
+                            case RequestCodes.KEY_UPDATE_LEAVE:
+                                byte[] encryptedGK = tree.encryptGKForMember(memId);
+                                int length = encryptedGK.length;
+                                int level = encryptedGK[length - 1];
+                                out.writeInt(level);
+                                out.writeInt(length - 1);
+                                out.write(Arrays.copyOf(encryptedGK, length - 1));
+                                break;
+                            case RequestCodes.UPDATE_PARENT:
+                                out.writeInt(tree.getParentCode(memId));
+                                break;
+                        }
+                    } catch (IOException | Exceptions.NoMemberException ex) {
                         Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
-                    }                                                                              
+                    }
                 }
             });
             caster.start();
+            try {
+                caster.join();
+            } catch (InterruptedException ex) {
+                Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
+            }
         }
+    }
+    
+    private void updateParents() {
+        List<UUID> members = tree.codesToUpdate();
+        Map<UUID, Member> group = new HashMap<>();
+        for (UUID id : members) {
+            Member mem = groupMembers.get(id);
+            group.put(id, mem);
+        }
+        uniMultiCast(group, RequestCodes.UPDATE_PARENT);
     }
     
     public void setMulticastPort(final int port) {
@@ -104,16 +135,16 @@ public class GroupController {
     }
 
     //need to handle redistribution of keys------------
-    private void removeMember(UUID memberId) {
+    private void removeMember(UUID memberID) {
         try {
-            tree.remove(memberId);
+            tree.remove(memberID);
+            groupMembers.remove(memberID);
             updateKeyOnLeave();
+            updateParents();
+            uniMultiCast(groupMembers, RequestCodes.KEY_UPDATE_LEAVE);
         } catch (Exceptions.NoMemberException e) {
             System.out.println(e.getMessage());
         }
-    }
-
-    public void updateLogicalTree() {
     }
         
     //randomly generate new GK
@@ -144,7 +175,7 @@ public class GroupController {
             InetAddress memberAddress = InetAddress.getByName(parts[4]);
             SecretKey sharedKey = Security.ECDHKeyAgreement(in, out);
             
-            message = "" + memberPort + "::" + N2Received + "::" + memID.toString();
+            message = "" + memberPort + "::" + N2Received + "::" + memID.toString() + "::" + tree.getRootCode();
             byte[] encryptedMessage = Security.AESEncrypt(sharedKey, message.getBytes(StandardCharsets.UTF_8));
             int length = encryptedMessage.length;
             out.writeInt(length);
@@ -232,10 +263,8 @@ public class GroupController {
     private class Member {
         private final InetAddress address;
         private final int port;
-        private final UUID id;
         
-        public Member(UUID id, int port, InetAddress address) {
-            this.id = id;
+        public Member(int port, InetAddress address) {
             this.port = port;
             this.address = address;
         }
