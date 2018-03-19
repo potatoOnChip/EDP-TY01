@@ -55,6 +55,7 @@ public class MainClass {
     
     private static void removeMember(int index) throws InterruptedException {
         GroupMember member = members.get(index);
+        System.out.println("Removing member: " + member.getId().toString());
         member.requestLeave(address, 15000);
         members.remove(index);
         printMembers();

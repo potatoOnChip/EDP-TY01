@@ -95,10 +95,10 @@ public class LogicalTree {
             setExposed(pathToRoot(member));
             resetChildIterator();
         } else {
+            MiddleNode middle = null;
             if (parent.children.isEmpty()) {
                 setExposed(pathToRoot(member));
                 int digitSize = Integer.toString(parent.nodeCode).length() + 1;
-                MiddleNode middle = null;
                 for (Integer nodeCode : codeValuesTaken.get(digitSize)) {
                     if (middleNodes.get(nodeCode).parentCode == parent.nodeCode) {
                         middle = middleNodes.get(nodeCode);
@@ -109,6 +109,7 @@ public class LogicalTree {
                         LeafNode child = leafNodes.get(Id);
                         child.parentCode = parent.nodeCode;
                         child.isParentUpdated = true;
+                        parent.children.add(Id);
                         leafNodes.put(Id, child);
                     }                    
                 }
@@ -117,12 +118,15 @@ public class LogicalTree {
                 int newParentCode = parent.parentCode;
                 if (newParentCode != 0) {
                     UUID siblingId = parent.children.get(0);
+                    middle = middleNodes.get(newParentCode);
+                    middle.children.add(siblingId);
                     LeafNode sibling = leafNodes.get(siblingId);
                     sibling.parentCode = newParentCode;
                     sibling.isParentUpdated = true;
                     setExposed(pathToRoot(sibling));
                     leafNodes.put(siblingId, sibling);
                 }
+                middleNodes.put(newParentCode, middle);
                 middleNodes.remove(parent.nodeCode);
             }
             leafNodes.remove(memberId);
