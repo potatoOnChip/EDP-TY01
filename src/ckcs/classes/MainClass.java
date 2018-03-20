@@ -4,8 +4,8 @@ import static java.lang.Thread.sleep;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
-import javax.crypto.SecretKey;
-import javax.xml.bind.DatatypeConverter;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  *
@@ -24,18 +24,26 @@ public class MainClass {
             @Override
             public void run() {
                 keyServer.startListening(15000);
-                keyServer.setMulticastPort(10000);
+                keyServer.setMulticastPort(10001);
             }
         });
         th.start();
         System.out.println(keyServer.toString());
         
         for (int i = 0; i < 8; i++) {
-            addMember(10000 + i);
+            addMember(10000 + i, 15000);
         }
         
-        for (int i = 0; i < 4; i++) {
-            removeMember(i);
+        for (int i = 0; i < 8; i++) {
+            removeMember(i - i);
+        }
+        
+        for (int i = 0; i < 16; i++) {
+            addMember(11000 + i, 15000);
+        }
+        
+        for (int i = 0; i < 16; i++) {
+            removeMember(i - i);
         }
     }
     
@@ -45,9 +53,9 @@ public class MainClass {
             System.out.println(mem.toString());
     }
     
-    private static void addMember(int port) throws InterruptedException {
+    private static void addMember(int port, int servPort) throws InterruptedException {
         GroupMember member = new GroupMember(port);
-        member.requestJoin(address, 15000);
+        member.requestJoin(address, servPort);
         members.add(member);
         printMembers();
         System.out.println(keyServer.toString());

@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.MulticastSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -33,6 +34,7 @@ public class GroupMember {
     private InetAddress multicastAddress;
     private int port; //member's unqiue port to communicate with server
     private boolean isConnected; 
+    private Socket servSocket;
     
     
     public GroupMember(final int port) {
@@ -129,6 +131,7 @@ public class GroupMember {
                     System.out.println("Successful Leave");
                 }
                 isConnected = false;
+                servSocket.close();
             }
         } catch (IOException ex) {
             Logger.getLogger(GroupMember.class.getName()).log(Level.SEVERE, null, ex);
@@ -143,32 +146,33 @@ public class GroupMember {
         Thread keyServerListener = new Thread(new Runnable() {
             @Override
             public void run() {
-                try {
-                    ServerSocket fromServer = new ServerSocket(port);
+                try (ServerSocket fromServer = new ServerSocket()) {
+                    fromServer.setReuseAddress(true);
+                    fromServer.bind(new InetSocketAddress(port));
                     while (isConnected) {
-                      Socket socket = fromServer.accept();
-                      DataInputStream in = new DataInputStream(socket.getInputStream());
-                      int code = in.readInt();
-                      switch (code) {
-                          case RequestCodes.KEY_UPDATE_JOIN:
-                              handleJoinUpdate();
-                              break;
-                          case RequestCodes.KEY_UPDATE_LEAVE:
-                              int level = in.readInt();
-                              int length = in.readInt();
-                              byte[] encryptedGK = new byte[length];
-                              in.readFully(encryptedGK);
-                              handleLeaveUpdate(encryptedGK, level);
-                              break;
-                          case RequestCodes.UPDATE_PARENT:
-                              int newParent = in.readInt();
-                              updateParent(newParent);
-                              break;
-                          case RequestCodes.RECEIVE_MESSAGE:
-                              break;
-                          case RequestCodes.LISTEN_PORT:
-                              break;
-                      } 
+                        servSocket = fromServer.accept();
+                        DataInputStream in = new DataInputStream(servSocket.getInputStream());
+                        int code = in.readInt();
+                        switch (code) {
+                            case RequestCodes.KEY_UPDATE_JOIN:
+                                handleJoinUpdate();
+                                break;
+                            case RequestCodes.KEY_UPDATE_LEAVE:
+                                int level = in.readInt();
+                                int length = in.readInt();
+                                byte[] encryptedGK = new byte[length];
+                                in.readFully(encryptedGK);
+                                handleLeaveUpdate(encryptedGK, level);
+                                break;
+                            case RequestCodes.UPDATE_PARENT:
+                                int newParent = in.readInt();
+                                updateParent(newParent);
+                                break;
+                            case RequestCodes.RECEIVE_MESSAGE:
+                                break;
+                            case RequestCodes.LISTEN_PORT:
+                                break;
+                        } 
                     }
                 } catch (IOException ex) {
                     Logger.getLogger(GroupMember.class.getName()).log(Level.SEVERE, null, ex);

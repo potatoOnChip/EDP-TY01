@@ -42,7 +42,7 @@ public interface RequestCodes {
     final static int RECEIVE_MESSAGE = 32;
     final static int LISTEN_PORT = 64;
     final static int UPDATE_PARENT = 128;
-    final static int ERROR = 256;
+    final static int ERROR = 512;
     
     final static int BUFFER_SIZE = 512;
 }

@@ -11,7 +11,6 @@ import java.util.ListIterator;
 import java.util.TreeMap;
 import java.util.UUID;
 import javax.crypto.SecretKey;
-import javax.xml.bind.DatatypeConverter;
 
 //tree constructed as a binary tree, strictly to hold data for KeyServer
 //and some minimum data manipulation 
@@ -90,6 +89,7 @@ public class LogicalTree {
         }
         MiddleNode parent = middleNodes.get(member.parentCode);
         parent.children.remove(memberId);
+        middleNodes.put(parent.nodeCode, parent);
         if (parent.children.size() > 2) {
             leafNodes.remove(memberId);
             setExposed(pathToRoot(member));
@@ -98,22 +98,42 @@ public class LogicalTree {
             MiddleNode middle = null;
             if (parent.children.isEmpty()) {
                 setExposed(pathToRoot(member));
-                int digitSize = Integer.toString(parent.nodeCode).length() + 1;
-                for (Integer nodeCode : codeValuesTaken.get(digitSize)) {
+                int siblingDigitSize = Integer.toString(parent.nodeCode).length() + 1;
+                for (Integer nodeCode : codeValuesTaken.get(siblingDigitSize)) {
                     if (middleNodes.get(nodeCode).parentCode == parent.nodeCode) {
                         middle = middleNodes.get(nodeCode);
                     }
                 }
                 if (middle != null) {
-                    for (UUID Id : middle.children) {
-                        LeafNode child = leafNodes.get(Id);
-                        child.parentCode = parent.nodeCode;
-                        child.isParentUpdated = true;
-                        parent.children.add(Id);
-                        leafNodes.put(Id, child);
-                    }                    
+                    if (middle.children.isEmpty()) {
+                        int childDigitSize = Integer.toString(middle.nodeCode).length() + 1;
+                        ArrayList<Integer> children = new ArrayList<>();
+                        children.addAll(codeValuesTaken.get(childDigitSize));
+                        middleNodes.remove(parent.nodeCode, parent);
+                        middleNodes.remove(middle.nodeCode, middle);
+                        int parentDigitSize = Integer.toString(parent.nodeCode).length();
+                        codeValuesTaken.get(parentDigitSize).remove(Integer.valueOf(parent.nodeCode));
+                        codeValuesTaken.get(siblingDigitSize).remove(Integer.valueOf(middle.nodeCode));
+                        for (Integer nodeCode : children) {
+                            if (middleNodes.get(nodeCode).parentCode == middle.nodeCode) {
+                                MiddleNode child = middleNodes.get(nodeCode);
+                                codeValuesTaken.get(childDigitSize).remove(nodeCode);
+                                updateNodeCodes(child, parent.parentCode, middleNodes.values());
+                            }
+                        }
+                    } else {
+                        for (UUID Id : middle.children) {
+                            LeafNode child = leafNodes.get(Id);
+                            child.parentCode = parent.nodeCode;
+                            child.isParentUpdated = true;
+                            parent.children.add(Id);
+                            leafNodes.put(Id, child);
+                        }    
+                        codeValuesTaken.get(siblingDigitSize).remove(Integer.valueOf(middle.nodeCode));
+                        middleNodes.remove(middle.nodeCode);
+                        middleNodes.put(parent.nodeCode, parent);   
+                    }
                 }
-                middleNodes.put(parent.nodeCode, middle);
             } else {
                 int newParentCode = parent.parentCode;
                 if (newParentCode != 0) {
@@ -125,9 +145,16 @@ public class LogicalTree {
                     sibling.isParentUpdated = true;
                     setExposed(pathToRoot(sibling));
                     leafNodes.put(siblingId, sibling);
+                    middleNodes.remove(parent.nodeCode);
+                    middleNodes.put(newParentCode, middle);
+                    
+                    int digitSize = Integer.toString(parent.nodeCode).length();
+                    codeValuesTaken.get(digitSize).remove(Integer.valueOf(parent.nodeCode));
+                } else {
+                    parent.numberOfChildren--;
+                    middleNodes.put(parent.nodeCode, parent);
+                    resetChildIterator();
                 }
-                middleNodes.put(newParentCode, middle);
-                middleNodes.remove(parent.nodeCode);
             }
             leafNodes.remove(memberId);
             resetMiddleIterator();
@@ -270,14 +297,22 @@ public class LogicalTree {
     //to update the nodeCodes and parentNodeCodes of all middleNodes under parameter - node
     //NEEDS TO BE TESTEDDDDDDDDDDDDDDD
     private void updateNodeCodes(MiddleNode node, int newParentCode, Collection<MiddleNode> middles) {
-        int parentCode = node.nodeCode;
+        int parentCode = node.nodeCode;        
         node.parentCode = newParentCode;
         node.nodeCode = addRandomDigit(newParentCode);
+        Collection<MiddleNode> nodes = new ArrayList<>();
+        nodes.addAll(middles);
         
-        for (MiddleNode middleNode : middles) {
+        for (MiddleNode middleNode : nodes) {
             if (middleNode.parentCode == parentCode) {
-                updateNodeCodes(middleNode, node.nodeCode, middles);
+                updateNodeCodes(middleNode, node.nodeCode, nodes);
             }
+        }
+        for (UUID childId : node.children) {
+            LeafNode child = leafNodes.get(childId);
+            child.parentCode = node.nodeCode;
+            child.isParentUpdated = true;
+            leafNodes.put(childId, child);
         }
         middleNodes.put(node.nodeCode, node);
     }
