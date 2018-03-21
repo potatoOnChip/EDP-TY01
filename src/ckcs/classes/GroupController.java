@@ -45,7 +45,7 @@ public class GroupController {
     public GroupController(InetAddress groupAddress) {
         this.tree = new LogicalTree(2, 3);
         this.groupMembers = new HashMap<>();
-        this.executor = new ThreadPoolExecutor(10, 10, 60, TimeUnit.SECONDS, new LinkedBlockingQueue());
+        this.executor = new ThreadPoolExecutor(5, 5, 60, TimeUnit.SECONDS, new LinkedBlockingQueue());
         this.serverID = UUID.randomUUID();
         this.address = groupAddress; //multicast group address
         tree.setGroupKey(Security.generateRandomKey());
