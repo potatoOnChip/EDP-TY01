@@ -21,6 +21,7 @@ import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -91,7 +92,7 @@ public class GroupController {
     
     //a bunch of unicasts to simulate multicast
     private void uniMultiCast(final Map<UUID, Member> members, final int code) {  
-        ExecutorService ex = Executors.newCachedThreadPool();
+        ExecutorService ex = new ThreadPoolExecutor(10, 10, 60, TimeUnit.SECONDS, new LinkedBlockingQueue());
         for (final UUID memId : members.keySet()) {
             final Member member = members.get(memId);
             ex.execute(new MultiUnicast(member, memId, code));
