@@ -13,14 +13,15 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -38,11 +39,13 @@ public class GroupController {
     private final Map<UUID, Member> groupMembers;
     private final UUID serverID;
     private final InetAddress address;
+    private final ExecutorService executor;
     private int multcastPort;
     
     public GroupController(InetAddress groupAddress) {
         this.tree = new LogicalTree(2, 3);
         this.groupMembers = new HashMap<>();
+        this.executor = new ThreadPoolExecutor(10, 10, 60, TimeUnit.SECONDS, new LinkedBlockingQueue());
         this.serverID = UUID.randomUUID();
         this.address = groupAddress; //multicast group address
         tree.setGroupKey(Security.generateRandomKey());
@@ -53,12 +56,12 @@ public class GroupController {
     //connections --- either JOIN/LEAVE/MESSAGE request
     public void startListening(final int port) {
         try {        
-            ExecutorService executor = new ThreadPoolExecutor(1,4, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(6));
+            ExecutorService ex = new ThreadPoolExecutor(1, 4, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(6));
             ServerSocket server = new ServerSocket();
             server.bind(new InetSocketAddress(port));
             while (true) {
                 Socket socket = server.accept();
-                executor.execute(new RequestHandler(socket));
+                ex.execute(new RequestHandler(socket));
             }
         } catch (IOException ex) {
             Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
@@ -92,14 +95,13 @@ public class GroupController {
     
     //a bunch of unicasts to simulate multicast
     private void uniMultiCast(final Map<UUID, Member> members, final int code) {  
-        ExecutorService ex = new ThreadPoolExecutor(10, 10, 60, TimeUnit.SECONDS, new LinkedBlockingQueue());
+        List<MultiUnicast> tasks = new ArrayList<>();
         for (final UUID memId : members.keySet()) {
             final Member member = members.get(memId);
-            ex.execute(new MultiUnicast(member, memId, code));
+            tasks.add(new MultiUnicast(member, memId, code));
         }
-        ex.shutdown();
         try {
-            ex.awaitTermination(10, TimeUnit.SECONDS);
+            executor.invokeAll(tasks);
         } catch (InterruptedException ex1) {
             Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex1);
         }
@@ -215,7 +217,7 @@ public class GroupController {
         }
     }
     
-    private class MultiUnicast implements Runnable {
+    private class MultiUnicast implements Callable<Void> {
         Member member;
         UUID memId;
         int requestCode;
@@ -227,7 +229,7 @@ public class GroupController {
         }
         
         @Override
-        public void run() {
+        public Void call() {
             try (Socket socket = new Socket(member.address, member.port)) {
                 DataOutputStream out = new DataOutputStream(socket.getOutputStream());      
                 out.writeInt(requestCode);
@@ -247,6 +249,7 @@ public class GroupController {
                 } catch (IOException | Exceptions.NoMemberException ex) {
                 Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
             }
+            return null;
         }
     }
     
