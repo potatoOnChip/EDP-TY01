@@ -4,8 +4,6 @@ import static java.lang.Thread.sleep;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  *
@@ -34,7 +32,7 @@ public class MainClass {
             addMember(10000 + i, 15000);
         }
         
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 4; i++) {
             removeMember(i - i);
         }
         

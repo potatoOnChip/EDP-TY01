@@ -81,7 +81,7 @@ public class LogicalTree {
     //remove a node from the tree
     //KeyServer handles the maintaince and updating of tree
     //LogicalTree doesn't know anything about it's shape/layout
-    public void remove(UUID memberId) throws NoMemberException {
+    public synchronized void remove(UUID memberId) throws NoMemberException {
         //set necessary middle nodes to exposed when member is removed
         LeafNode member = leafNodes.get(memberId);
         if (member == null) {
@@ -89,15 +89,12 @@ public class LogicalTree {
         }
         MiddleNode parent = middleNodes.get(member.parentCode);
         parent.children.remove(memberId);
+        parent.numberOfChildren--;
+        setExposed(pathToRoot(member));
         middleNodes.put(parent.nodeCode, parent);
-        if (parent.children.size() > 2) {
-            leafNodes.remove(memberId);
-            setExposed(pathToRoot(member));
-            resetChildIterator();
-        } else {
+        if (parent.children.size() < 2) {
             MiddleNode middle = null;
             if (parent.children.isEmpty()) {
-                setExposed(pathToRoot(member));
                 int siblingDigitSize = Integer.toString(parent.nodeCode).length() + 1;
                 for (Integer nodeCode : codeValuesTaken.get(siblingDigitSize)) {
                     if (middleNodes.get(nodeCode).parentCode == parent.nodeCode) {
@@ -109,56 +106,71 @@ public class LogicalTree {
                         int childDigitSize = Integer.toString(middle.nodeCode).length() + 1;
                         ArrayList<Integer> children = new ArrayList<>();
                         children.addAll(codeValuesTaken.get(childDigitSize));
-                        middleNodes.remove(parent.nodeCode, parent);
                         middleNodes.remove(middle.nodeCode, middle);
-                        int parentDigitSize = Integer.toString(parent.nodeCode).length();
-                        codeValuesTaken.get(parentDigitSize).remove(Integer.valueOf(parent.nodeCode));
                         codeValuesTaken.get(siblingDigitSize).remove(Integer.valueOf(middle.nodeCode));
-                        for (Integer nodeCode : children) {
-                            if (middleNodes.get(nodeCode).parentCode == middle.nodeCode) {
-                                MiddleNode child = middleNodes.get(nodeCode);
-                                codeValuesTaken.get(childDigitSize).remove(nodeCode);
-                                updateNodeCodes(child, parent.parentCode, middleNodes.values());
+                        parent.numberOfChildren--;
+                        MiddleNode parentsParent = middleNodes.get(parent.parentCode);
+                        if (parentsParent != null && parentsParent.numberOfChildren == 1) {
+                            middleNodes.remove(parent.nodeCode, parent);
+                            int parentDigitSize = Integer.toString(parent.nodeCode).length();
+                            codeValuesTaken.get(parentDigitSize).remove(Integer.valueOf(parent.nodeCode));
+                            parentsParent.numberOfChildren--;
+                            for (Integer nodeCode : children) {
+                                if (middleNodes.get(nodeCode).parentCode == middle.nodeCode) {
+                                    MiddleNode child = middleNodes.get(nodeCode);
+                                    codeValuesTaken.get(childDigitSize).remove(nodeCode);
+                                    updateNodeCodes(child, parent.parentCode, middleNodes.values());
+                                    parentsParent.numberOfChildren++;
+                                }
                             }
+                        } else {
+                            for (Integer nodeCode : children) {
+                                if (middleNodes.get(nodeCode).parentCode == middle.nodeCode) {
+                                    MiddleNode child = middleNodes.get(nodeCode);
+                                    codeValuesTaken.get(childDigitSize).remove(nodeCode);
+                                    updateNodeCodes(child, parent.nodeCode, middleNodes.values());
+                                    parent.numberOfChildren++;
+                                }
+                            }                                                                                    
                         }
                     } else {
+                        codeValuesTaken.get(siblingDigitSize).remove(Integer.valueOf(middle.nodeCode));
+                        middleNodes.remove(middle.nodeCode);
+                        parent.numberOfChildren--;
                         for (UUID Id : middle.children) {
                             LeafNode child = leafNodes.get(Id);
                             child.parentCode = parent.nodeCode;
                             child.isParentUpdated = true;
                             parent.children.add(Id);
+                            parent.numberOfChildren++;
                             leafNodes.put(Id, child);
                         }    
-                        codeValuesTaken.get(siblingDigitSize).remove(Integer.valueOf(middle.nodeCode));
-                        middleNodes.remove(middle.nodeCode);
                         middleNodes.put(parent.nodeCode, parent);   
                     }
                 }
             } else {
                 int newParentCode = parent.parentCode;
                 if (newParentCode != 0) {
-                    UUID siblingId = parent.children.get(0);
                     middle = middleNodes.get(newParentCode);
-                    middle.children.add(siblingId);
+                    UUID siblingId = parent.children.get(0);
                     LeafNode sibling = leafNodes.get(siblingId);
-                    sibling.parentCode = newParentCode;
-                    sibling.isParentUpdated = true;
-                    setExposed(pathToRoot(sibling));
-                    leafNodes.put(siblingId, sibling);
-                    middleNodes.remove(parent.nodeCode);
-                    middleNodes.put(newParentCode, middle);
-                    
                     int digitSize = Integer.toString(parent.nodeCode).length();
                     codeValuesTaken.get(digitSize).remove(Integer.valueOf(parent.nodeCode));
+                    middleNodes.remove(parent.nodeCode);
+                    middle.numberOfChildren--;
+                    
+                    middle.children.add(siblingId);
+                    sibling.parentCode = newParentCode;
+                    sibling.isParentUpdated = true;
+                    middle.numberOfChildren++;
+                    leafNodes.put(siblingId, sibling);
+                    middleNodes.put(newParentCode, middle);   
                 } else {
-                    parent.numberOfChildren--;
                     middleNodes.put(parent.nodeCode, parent);
-                    resetChildIterator();
                 }
             }
-            leafNodes.remove(memberId);
-            resetMiddleIterator();
         }
+        leafNodes.remove(memberId);
         updateMiddleKeys();
     } 
     
@@ -185,23 +197,22 @@ public class LogicalTree {
     //if NO middleNode exists with space for children, iterate through MiddleNodes and replace a LEAFNODE with
     //a new MIDDLENODE and attach new member to that NEW MIDDLENODE
     //This ensures that ALL MIDDLENODES are full with children before deciding to replace a CHILD with a new MIDDLENODE 
-    public void add(UUID memberId, SecretKey key) {
+    public synchronized void add(UUID memberId, SecretKey key) {
+        resetChildIterator();
         while (iteratorChild.hasNext()) {
             int code = (Integer)iteratorChild.next();
             MiddleNode parent = middleNodes.get(code);
             if (addLeaf(parent, memberId, key)) {
                 middleNodes.put(code, parent);
-                iteratorChild.previous();
                 return;
             }
         }
-        iteratorChild.previous();
+        resetMiddleIterator();
         while(iteratorMiddle.hasNext()) {
             int code = (Integer)iteratorMiddle.next();
             MiddleNode parent = middleNodes.get(code);
             if (addMiddleAndLeaf(parent, memberId, key)) {
                 middleNodes.put(code, parent);
-                updateIterators();
                 return;
             }
         }
@@ -237,7 +248,6 @@ public class LogicalTree {
             middleNodes.put(middleChild.nodeCode, middleChild);
             leafNodes.put(childOneId, childOne);
             leafNodes.put(memberId, child);
-            iteratorMiddle.previous();
             return true;
         }
         return false;
@@ -286,16 +296,7 @@ public class LogicalTree {
         iteratorChild = keyList.listIterator(0);
     }
     
-    //purpose is to update iterator with new keylist
-    private void updateIterators() {
-        int positionMiddle = iteratorMiddle.nextIndex();
-        List<Integer> keyList = new ArrayList<>(middleNodes.keySet());
-        iteratorMiddle = keyList.listIterator(positionMiddle);
-        iteratorChild = keyList.listIterator(positionMiddle);
-    }
-    
     //to update the nodeCodes and parentNodeCodes of all middleNodes under parameter - node
-    //NEEDS TO BE TESTEDDDDDDDDDDDDDDD
     private void updateNodeCodes(MiddleNode node, int newParentCode, Collection<MiddleNode> middles) {
         int parentCode = node.nodeCode;        
         node.parentCode = newParentCode;

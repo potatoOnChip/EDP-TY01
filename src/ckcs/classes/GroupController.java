@@ -18,6 +18,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.crypto.SecretKey;
@@ -47,11 +52,12 @@ public class GroupController {
     //connections --- either JOIN/LEAVE/MESSAGE request
     public void startListening(final int port) {
         try {        
+            ExecutorService executor = new ThreadPoolExecutor(1,4, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(6));
             ServerSocket server = new ServerSocket();
             server.bind(new InetSocketAddress(port));
             while (true) {
                 Socket socket = server.accept();
-                new RequestHandler(socket).start();
+                executor.execute(new RequestHandler(socket));
             }
         } catch (IOException ex) {
             Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
@@ -85,38 +91,16 @@ public class GroupController {
     
     //a bunch of unicasts to simulate multicast
     private void uniMultiCast(final Map<UUID, Member> members, final int code) {  
+        ExecutorService ex = Executors.newCachedThreadPool();
         for (final UUID memId : members.keySet()) {
             final Member member = members.get(memId);
-            Thread caster = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try (Socket socket = new Socket(member.address, member.port)) {
-                        DataOutputStream out = new DataOutputStream(socket.getOutputStream());      
-                        out.writeInt(code);
-                        switch (code) {
-                            case RequestCodes.KEY_UPDATE_LEAVE:
-                                byte[] encryptedGK = tree.encryptGKForMember(memId);
-                                int length = encryptedGK.length;
-                                int level = encryptedGK[length - 1];
-                                out.writeInt(level);
-                                out.writeInt(length - 1);
-                                out.write(Arrays.copyOf(encryptedGK, length - 1));
-                                break;
-                            case RequestCodes.UPDATE_PARENT:
-                                out.writeInt(tree.getParentCode(memId));
-                                break;
-                        }
-                    } catch (IOException | Exceptions.NoMemberException ex) {
-                        Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
-                    }
-                }
-            });
-            caster.start();
-            try {
-                caster.join();
-            } catch (InterruptedException ex) {
-                Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
-            }
+            ex.execute(new MultiUnicast(member, memId, code));
+        }
+        ex.shutdown();
+        try {
+            ex.awaitTermination(10, TimeUnit.SECONDS);
+        } catch (InterruptedException ex1) {
+            Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex1);
         }
     }
     
@@ -230,7 +214,42 @@ public class GroupController {
         }
     }
     
-    private class RequestHandler extends Thread {
+    private class MultiUnicast implements Runnable {
+        Member member;
+        UUID memId;
+        int requestCode;
+
+        private MultiUnicast(Member member, UUID memId, int code) {
+            this.member = member;
+            this.memId = memId;
+            this.requestCode = code;
+        }
+        
+        @Override
+        public void run() {
+            try (Socket socket = new Socket(member.address, member.port)) {
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());      
+                out.writeInt(requestCode);
+                switch (requestCode) {
+                    case RequestCodes.KEY_UPDATE_LEAVE:
+                        byte[] encryptedGK = tree.encryptGKForMember(memId);
+                        int length = encryptedGK.length;
+                        int level = encryptedGK[length - 1];
+                        out.writeInt(level);
+                        out.writeInt(length - 1);
+                        out.write(Arrays.copyOf(encryptedGK, length - 1));
+                        break;
+                    case RequestCodes.UPDATE_PARENT:
+                        out.writeInt(tree.getParentCode(memId));
+                        break;
+                    }
+                } catch (IOException | Exceptions.NoMemberException ex) {
+                Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        }
+    }
+    
+    private class RequestHandler implements Runnable {
         Socket socket;
         
         private RequestHandler(Socket clientSocket) {
