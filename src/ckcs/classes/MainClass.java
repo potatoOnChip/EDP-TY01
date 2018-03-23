@@ -28,21 +28,13 @@ public class MainClass {
         th.start();
         System.out.println(keyServer.toString());
         
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 4; i++) {
             addMember(10000 + i, 15000);
         }
         
-        for (int i = 0; i < 4; i++) {
-            removeMember(i - i);
-        }
-        
-        for (int i = 0; i < 16; i++) {
-            addMember(11000 + i, 15000);
-        }
-        
-        for (int i = 0; i < 16; i++) {
-            removeMember(i - i);
-        }
+        members.get(1).sendMessage("TEST");
+        removeMember(1);
+        members.get(2).sendMessage("WOOOOOOOORKS");
     }
     
     private static void printMembers() throws InterruptedException {
@@ -62,7 +54,7 @@ public class MainClass {
     private static void removeMember(int index) throws InterruptedException {
         GroupMember member = members.get(index);
         System.out.println("Removing member: " + member.getId().toString());
-        member.requestLeave(address, 15000);
+        member.requestLeave();
         members.remove(index);
         printMembers();
         System.out.println(keyServer.toString());

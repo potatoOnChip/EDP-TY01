@@ -25,17 +25,19 @@ import javax.xml.bind.DatatypeConverter;
 public class GroupMember {
     
     final private UUID memberID; //randomly assigned
+    private int port; //member's unqiue port to communicate with server
     private UUID serverID;
+    private InetAddress serverAddress;
+    private int serverPort;
     private SecretKey key; //Group Controller key exchange 
     private SecretKey groupKey;
     private int parentCode; //Should be obtained from GroupController via LogicalTree
     private int rootCode; //rootCode of logical tree
-    private int globalPort; //the port multicast group globally sends too
-    private InetAddress multicastAddress;
-    private int port; //member's unqiue port to communicate with server
     private boolean isConnected; 
     private Socket servSocket;
     
+    private int globalPort; //the port multicast group globally sends too
+    private InetAddress multicastAddress;
     
     public GroupMember(final int port) {
         this(UUID.randomUUID(), port);              
@@ -47,99 +49,108 @@ public class GroupMember {
     }
 
     public void requestJoin(final InetAddress address, final int portNumber) {
-        try {
-            try (Socket socket = new Socket(address, portNumber);
-                    DataInputStream in = new DataInputStream(socket.getInputStream());
-                    DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
+        serverAddress = address;
+        serverPort = portNumber;
+        try (Socket socket = new Socket(address, portNumber);
+            DataInputStream in = new DataInputStream(socket.getInputStream());
+            DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
                 
-                out.writeInt(RequestCodes.REQUEST_JOIN);
-                String message = in.readUTF();
-                String parts[] = message.split("::");
-                serverID = UUID.fromString(parts[0]);
-                int N1Received = Integer.parseInt(parts[1]);
+            out.writeInt(RequestCodes.REQUEST_JOIN);
+            String message = in.readUTF();
+            String parts[] = message.split("::");
+            serverID = UUID.fromString(parts[0]);
+            int N1Received = Integer.parseInt(parts[1]);
                 
-                int N2 = (int)(1000 * Math.random() * Math.random());
-                message = "" + N1Received + "::" + memberID.toString() + "::" + N2 + "::" + 
-                        port + "::" + InetAddress.getLocalHost().getHostAddress();
-                out.writeUTF(message);
-                this.key = Security.ECDHKeyAgreement(in, out);
+            int N2 = (int)(1000 * Math.random() * Math.random());
+            message = "" + N1Received + "::" + memberID.toString() + "::" + N2 + "::" + 
+                    port + "::" + InetAddress.getLocalHost().getHostAddress();
+            out.writeUTF(message);
+            this.key = Security.ECDHKeyAgreement(in, out);
                 
-                int length = in.readInt();
-                byte[] received = new byte[length];
-                in.readFully(received);
-                message = new String(Security.AESDecrypt(key, received), StandardCharsets.UTF_8);
-                parts = message.split("::");
-                int N2Received = Integer.parseInt(parts[1]);
-                UUID memID = UUID.fromString(parts[2]);
-                this.rootCode = Integer.parseInt(parts[3]);
-                if (N2Received != N2 || !memID.equals(memberID)) {
-                    System.out.println("Connection Failed -- Back Out");
-                    return;
-                }
-                
-                length = in.readInt();
-                received = new byte[length];
-                in.read(received);
-                message = new String(Security.AESDecrypt(key, received), StandardCharsets.UTF_8);
-                parts = message.split("::");
-                parentCode = Integer.parseInt(parts[0]);
-                multicastAddress = InetAddress.getByName(parts[1]);
-                System.out.println(multicastAddress.getHostAddress());
-                globalPort = Integer.parseInt(parts[2]);
-                
-                BigInteger big = BigInteger.valueOf(parentCode);
-                byte[] encryptedMessage = Security.AESEncrypt(key, big.toByteArray());
-                length = encryptedMessage.length;
-                out.writeInt(length);
-                out.write(encryptedMessage);
-                
-                length = in.readInt();
-                received = new byte[length];
-                in.read(received);
-                groupKey = new SecretKeySpec(Security.AESDecrypt(key, received), "AES");
-                isConnected = true;
-                listenToKeyServer();
-                listenToMulticast(globalPort);
-                System.out.println("Connection Successful! Added to group");
+            int length = in.readInt();
+            byte[] received = new byte[length];
+            in.readFully(received);
+            message = new String(Security.AESDecrypt(key, received), StandardCharsets.UTF_8);
+            parts = message.split("::");
+            int N2Received = Integer.parseInt(parts[1]);
+            UUID memID = UUID.fromString(parts[2]);
+            this.rootCode = Integer.parseInt(parts[3]);
+            if (N2Received != N2 || !memID.equals(memberID)) {
+                System.out.println("Connection Failed -- Back Out");
+                return;
             }
+                
+            length = in.readInt();
+            received = new byte[length];
+            in.read(received);
+            message = new String(Security.AESDecrypt(key, received), StandardCharsets.UTF_8);
+            parts = message.split("::");
+            parentCode = Integer.parseInt(parts[0]);
+            multicastAddress = InetAddress.getByName(parts[1]);
+            System.out.println(multicastAddress.getHostAddress());
+            globalPort = Integer.parseInt(parts[2]);
+               
+            BigInteger big = BigInteger.valueOf(parentCode);
+            byte[] encryptedMessage = Security.AESEncrypt(key, big.toByteArray());
+            length = encryptedMessage.length;
+            out.writeInt(length);
+            out.write(encryptedMessage);
+                
+            length = in.readInt();
+            received = new byte[length];
+            in.read(received);
+            groupKey = new SecretKeySpec(Security.AESDecrypt(key, received), "AES");
+            isConnected = true;
+            listenToKeyServer();
+            listenToMulticast(globalPort);
+            System.out.println("Connection Successful! Added to group");
         } catch (IOException ex) {
             Logger.getLogger(GroupMember.class.getName()).log(Level.SEVERE, null, ex);
         }
-        
     }
 
-    public void requestLeave(final InetAddress address, final int portNumber) {
-        try {
-            try (Socket socket = new Socket(address, portNumber); 
-                    DataInputStream in = new DataInputStream(socket.getInputStream());
-                    DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {                
-                out.writeInt(RequestCodes.REQUEST_LEAVE);
-                String message = in.readUTF();
-                String parts[] = message.split("::");
-                UUID servID = UUID.fromString(parts[0]);
-                if (!servID.equals(serverID)) {
-                    System.out.println("Connection Failed -- Backout");
-                    return;
-                }
-                int N1Received = Integer.parseInt(parts[1]);
-                
-                int N2 = (int)(100 * Math.random() * Math.random());
-                message = "" + N1Received + "::" + memberID.toString() + "::" + N2;
-                out.writeUTF(message);
-                int N2Received = in.readInt();
-                if (N2 == N2Received) {
-                    System.out.println("Successful Leave");
-                }
-                isConnected = false;
-                servSocket.close();
+    public void requestLeave() {
+        try (Socket socket = new Socket(serverAddress, serverPort); 
+            DataInputStream in = new DataInputStream(socket.getInputStream());
+            DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {                
+            out.writeInt(RequestCodes.REQUEST_LEAVE);
+            String message = in.readUTF();
+            String parts[] = message.split("::");
+            UUID servID = UUID.fromString(parts[0]);
+            if (!servID.equals(serverID)) {
+                System.out.println("Connection Failed -- Backout");
+                return;
             }
+            int N1Received = Integer.parseInt(parts[1]);
+               
+            int N2 = (int)(100 * Math.random() * Math.random());
+            message = "" + N1Received + "::" + memberID.toString() + "::" + N2;
+            out.writeUTF(message);
+            int N2Received = in.readInt();
+            if (N2 == N2Received) {
+                System.out.println("Successful Leave");
+            }
+            isConnected = false;
+            servSocket.close();
         } catch (IOException ex) {
             Logger.getLogger(GroupMember.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
 
   
-    public void sendMessage() {
+    public void sendMessage(String message) {
+        byte[] msg = message.getBytes(StandardCharsets.UTF_8);
+        byte[] encrypted = Security.AESEncrypt(key, msg);
+        try (Socket socket = new Socket(serverAddress, serverPort); 
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
+            int length = encrypted.length;
+            out.writeInt(RequestCodes.SEND_MESSAGE);
+            out.writeUTF(memberID.toString());
+            out.writeInt(length);
+            out.write(encrypted);
+        } catch (IOException ex) {
+            Logger.getLogger(GroupMember.class.getName()).log(Level.SEVERE, null, ex);
+        }
     }
 
     private void listenToKeyServer() {
@@ -169,6 +180,9 @@ public class GroupMember {
                                 updateParent(newParent);
                                 break;
                             case RequestCodes.RECEIVE_MESSAGE:
+                                byte[] received = new byte[in.readInt()];
+                                in.readFully(received);
+                                readMessage(received);
                                 break;
                             case RequestCodes.LISTEN_PORT:
                                 break;
@@ -252,8 +266,10 @@ public class GroupMember {
         return path;
     }
     
-    private void readMessage(byte[] buffer) {
-        
+    private void readMessage(byte[] received) {
+        byte[] decrypted = Security.AESDecrypt(groupKey, received);
+        String message = new String(decrypted, StandardCharsets.UTF_8);
+        System.out.println(message);
     }
     
     public void setParentCode(int parentCode) {

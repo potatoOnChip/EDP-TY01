@@ -61,7 +61,7 @@ public class GroupController {
             server.bind(new InetSocketAddress(port));
             while (true) {
                 Socket socket = server.accept();
-                ex.execute(new RequestHandler(socket));
+                ex.execute(new RequestHandler(socket));   
             }
         } catch (IOException ex) {
             Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
@@ -93,11 +93,27 @@ public class GroupController {
         }
     }
     
+    private void uniMultiCast(byte[] message, int code) {
+        List<MultiUnicast> tasks = new ArrayList<>();
+        for (Member member : groupMembers.values()) {
+            tasks.add(new MultiUnicast(message, member, code));
+        }
+        try {
+            executor.invokeAll(tasks);
+        } catch (InterruptedException ex) {
+            Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+    
+    private void sendMessage(byte[] message) {
+        byte[] encryptedMessage = Security.AESEncrypt(tree.getGroupKey(), message);
+        uniMultiCast(encryptedMessage, RequestCodes.RECEIVE_MESSAGE);
+    }
     //a bunch of unicasts to simulate multicast
     private void uniMultiCast(final Map<UUID, Member> members, final int code) {  
         List<MultiUnicast> tasks = new ArrayList<>();
-        for (final UUID memId : members.keySet()) {
-            final Member member = members.get(memId);
+        for (UUID memId : members.keySet()) {
+            Member member = members.get(memId);
             tasks.add(new MultiUnicast(member, memId, code));
         }
         try {
@@ -221,10 +237,17 @@ public class GroupController {
         Member member;
         UUID memId;
         int requestCode;
+        byte[] message;
 
         private MultiUnicast(Member member, UUID memId, int code) {
             this.member = member;
             this.memId = memId;
+            this.requestCode = code;
+        }
+        
+        private MultiUnicast(byte[] message, Member member, int code) {
+            this.message = message;
+            this.member = member;
             this.requestCode = code;
         }
         
@@ -244,6 +267,12 @@ public class GroupController {
                         break;
                     case RequestCodes.UPDATE_PARENT:
                         out.writeInt(tree.getParentCode(memId));
+                        break;
+                    case RequestCodes.RECEIVE_MESSAGE:
+                        out.writeInt(message.length);
+                        out.write(message);
+                        break;
+                    default:
                         break;
                     }
                 } catch (IOException | Exceptions.NoMemberException ex) {
@@ -265,11 +294,26 @@ public class GroupController {
             try (DataInputStream in = new DataInputStream(socket.getInputStream());
                     DataOutputStream out = new DataOutputStream(socket.getOutputStream())) {
                 int request = in.readInt();
-                if (request == RequestCodes.REQUEST_JOIN) {
-                    handleJoin(in, out);
-                }
-                else if (request == RequestCodes.REQUEST_LEAVE) {
-                    handleLeave(in, out);
+                switch (request) {
+                    case RequestCodes.REQUEST_JOIN:
+                        handleJoin(in, out);
+                        break;
+                    case RequestCodes.REQUEST_LEAVE:
+                        handleLeave(in, out);
+                        break;
+                    case RequestCodes.SEND_MESSAGE:
+                        UUID memberId = UUID.fromString(in.readUTF());
+                        SecretKey key = tree.getMemberKey(memberId);
+                        if (key != null) {
+                            int length = in.readInt();
+                            byte[] received = new byte[length];
+                            in.readFully(received);
+                            received = Security.AESDecrypt(key, received);
+                            sendMessage(received);     
+                        }
+                        break;
+                    default:
+                        break;
                 }
             } catch (IOException ex) {
                 Logger.getLogger(GroupController.class.getName()).log(Level.SEVERE, null, ex);

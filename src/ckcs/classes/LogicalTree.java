@@ -341,6 +341,11 @@ public class LogicalTree {
         }
     }
     
+    public SecretKey getMemberKey(UUID memId) {
+        LeafNode member = leafNodes.get(memId);
+        return member.key;
+    }
+    
     public SecretKey getGroupKey() {
         return this.rootNode.key;
     }
